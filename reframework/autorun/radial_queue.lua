@@ -1,9 +1,9 @@
 -- @Author taakefyrsten
 -- https://next.nexusmods.com/profile/taakefyrsten
 -- https://github.com/jwlei/radial_queue
--- Version 2.7
+-- Version 2.8
 
-local VERSION = "2.7"
+local VERSION = "2.8"
 local CONFIG_PATH = "radial_queue.json"
 local SOURCE_MKB = 101
 local SOURCE_RADIAL = 55
@@ -375,7 +375,7 @@ local function setInputSource(instance)
     if instance == nil then
         return
     end
-      --ID 100, 101(TU2) for M+KB, 55 for Radial
+      --ID 100 for M+KB, 55 for Radial
     sourceInput = instance:get_field("_PartsOwnerAccessor"):get_field("_Owner"):get_ID()
     if sourceInput ~= SOURCE_MKB and sourceInput ~= SOURCE_RADIAL then
         debug("setInputSource - Unknown sourceInput: " .. tostring(sourceInput))
@@ -487,7 +487,7 @@ local function checkIsShortcutSelected(args)
         if shortcutPreviousItemId == nil then
             shortcutPreviousItemId = shortcutItemId
         elseif shortcutPreviousItemId ~= shortcutItemId then
-            if sourceInput == SOURCE_RADIAL then
+            if sourceInput == 55 then
                 stopExecution("ShortcutItemId changed")
             end
             shortcutPreviousItemId = shortcutItemId
@@ -612,7 +612,7 @@ local function saveItem(args)
     end
 
     instance = sdk.to_managed_object(args[2])
-    setInputSource(instance
+    setInputSource(instance)
 
     if sourceInput == SOURCE_MKB then
         GUI020600_itemIndex_current = getUserdataToInt(args[3])
@@ -658,14 +658,14 @@ local function retryShortcut(args)
         return
     end
 
-    if sourceInput == SOURCE_RADIAL then
+    if sourceInput == 55 then
         instance:call("updateShortcut()")
     end
     if instance_activeShortcut ~= nil then
         instance_activeShortcut:call("update()")
     end
 
-    if sourceInput == SOURCE_RADIAL and shortcutIsEnabled == false then
+    if sourceInput == 55 and shortcutIsEnabled == false then
         if config.IgnoreDisabledShortcut == false then
             stopExecution("Shortcut is disabled")
         end
@@ -693,7 +693,7 @@ local function retryShortcut(args)
         --debug("retryShortcut - recipeUnavailable - MATCH -1")
         if itemSuccess == false then
             if executing == true then
-                debug("RETRY - ItemId: " .. tostring(shortcutItemId))
+                debug("RETRY - ItemID: " .. tostring(shortcutItemId))
             end    
 
             if sourceInput == SOURCE_MKB and GUI020600_itemIndex_current ~= nil then
@@ -806,6 +806,14 @@ local function cancelTriggerOtomo(args)
 
     if isMasterPlayer:get_IsMaster() == true then
         stopExecution("cancelTriggerOtomo(emote)")
+    end
+end
+
+local function cancelTriggerHunterExtendBase(args)
+    local isMasterPlayer = sdk.to_managed_object(args[2]):get_field("_Character")
+
+    if isMasterPlayer:get_IsMaster() == true then
+        stopExecution("cancelTriggerHunterExtendBase")
     end
 end
 
@@ -955,8 +963,9 @@ if config.Enable == true then
 
     -- Item used successfully
     if type_HunterExtendBase then
-        sdk.hook(type_HunterExtendBase:get_method("successItem(app.ItemDef.ID, System.Int32, System.Boolean, ace.ShellBase, System.Single, System.Boolean, app.ItemDef.ID, System.Boolean)"), function(args) stopExecution("type_HunterExtendBase_successItem") end, nil)
+        sdk.hook(type_HunterExtendBase:get_method("successItem(app.ItemDef.ID, System.Int32, System.Boolean, ace.ShellBase, System.Single, System.Boolean, app.ItemDef.ID, System.Boolean)"), cancelTriggerHunterExtendBase, nil)
     end
+    -- function(args) stopExecution("type_HunterExtendBase_successItem") end
     
     --= Cancel events =================================================================--
     if type_Hit then
