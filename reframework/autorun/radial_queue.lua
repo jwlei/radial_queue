@@ -1,12 +1,12 @@
 -- @Author taakefyrsten
 -- https://next.nexusmods.com/profile/taakefyrsten
 -- https://github.com/jwlei/radial_queue
--- Version 2.8
+-- Version 2.9
 
-local VERSION = "2.8"
+local VERSION = "2.9"
 local CONFIG_PATH = "radial_queue.json"
-local SOURCE_MKB = 101
-local SOURCE_RADIAL = 55
+local SOURCE_MKB = 12
+local SOURCE_PAD = 0
 
 --= Configuration =============================================================================--
 local config = {
@@ -276,6 +276,7 @@ local type_Hit                                  = sdk.find_type_definition("app.
 local type_cCustomShortcutElement               = sdk.find_type_definition("app.cCustomShortcutElement")
 local type_mcHunterArmorControl 			    = sdk.find_type_definition("app.mcHunterArmorControl")
 local type_mcActiveSkillController 		        = sdk.find_type_definition("app.mcActiveSkillController")
+local type_SOUNDGUITRIGGERMANAGER                   = sdk.find_type_definition("app.SoundGUITriggerManager")
 --app.GUI020006.requestOpenItemSlider Item bar
 --app.GUI020007 Radial M+KB
 
@@ -300,6 +301,7 @@ local GUI020600_itemIndex_current   = nil
 local cancelCount                   = 0
 local cancelCountDodge              = 0
 local resetTime                     = nil
+local soundCounter                  = 0
 
 -- Shortcut related
 local table_shortcutRecipeItem      = {}
@@ -371,24 +373,28 @@ local function getHunterCharacterCombat()
 	end
 end
 
+local function getUserdataToInt(args)
+    return tonumber(string.sub(string.gsub(tostring(args), "userdata: ", ""), -2), 16)
+end
+
 local function setInputSource(instance)
     if instance == nil then
         return
     end
       --ID 100 for M+KB, 55 for Radial
-    sourceInput = instance:get_field("_PartsOwnerAccessor"):get_field("_Owner"):get_ID()
-    if sourceInput ~= SOURCE_MKB and sourceInput ~= SOURCE_RADIAL then
-        debug("setInputSource - Unknown sourceInput: " .. tostring(sourceInput))
+    sourceInput = getUserdataToInt(instance:get_field("_LastInputDevice"))
+
+    if sourceInput ~= SOURCE_PAD then
+        sourceInput = SOURCE_MKB
+        debug("setInputSource - Unknown sourceInput " .. tostring(sourceInput))
+        debug("setInputSource - Defaulting to M+KB")
         return
     end
 
     if sourceInput == nil then
         return
     end
-end
-
-local function getUserdataToInt(args)
-    return tonumber(string.sub(string.gsub(tostring(args), "userdata: ", ""), -2), 16)
+    
 end
 
 local function skipPadInput(args)
@@ -432,6 +438,7 @@ local function stopExecution(msg)
     shortcutIsEnabled = nil
     shortcutPreviousItemId = nil
     cancelCountDodge = 0
+    soundCounter = 0
     executing = false
 end
 
@@ -487,7 +494,7 @@ local function checkIsShortcutSelected(args)
         if shortcutPreviousItemId == nil then
             shortcutPreviousItemId = shortcutItemId
         elseif shortcutPreviousItemId ~= shortcutItemId then
-            if sourceInput == 55 then
+            if sourceInput == SOURCE_PAD then
                 stopExecution("ShortcutItemId changed")
             end
             shortcutPreviousItemId = shortcutItemId
@@ -509,6 +516,16 @@ local function checkIsShortcutEnabled(retval)
     end
 
     return retval
+end
+
+local function interceptSound(args)
+    local instanceSound = getUserdataToInt(sdk.to_ptr(args[5]))
+    --debug("instanceSound = " .. tostring(instanceSound))
+
+    if instanceSound == 1 and soundCounter >= 1 and itemSuccess == false then
+        return sdk.PreHookResult.SKIP_ORIGINAL
+    end
+    
 end
 
 local function startTimer()
@@ -614,7 +631,7 @@ local function saveItem(args)
     instance = sdk.to_managed_object(args[2])
     setInputSource(instance)
 
-    if sourceInput == SOURCE_MKB then
+    if sourceInput ~= SOURCE_PAD then
         GUI020600_itemIndex_current = getUserdataToInt(args[3])
         debug("itemIndex - " .. GUI020600_itemIndex_current)
         shortcutPreviousItemId = nil
@@ -657,15 +674,17 @@ local function retryShortcut(args)
     if instance == nil or itemSuccess == true then
         return
     end
+    local soundInstance = nil
 
-    if sourceInput == 55 then
+    if sourceInput == SOURCE_PAD then
+        soundInstance = sdk.to_managed_object()
         instance:call("updateShortcut()")
     end
     if instance_activeShortcut ~= nil then
         instance_activeShortcut:call("update()")
     end
 
-    if sourceInput == 55 and shortcutIsEnabled == false then
+    if sourceInput == SOURCE_PAD and shortcutIsEnabled == false then
         if config.IgnoreDisabledShortcut == false then
             stopExecution("Shortcut is disabled")
         end
@@ -698,7 +717,7 @@ local function retryShortcut(args)
 
             if sourceInput == SOURCE_MKB and GUI020600_itemIndex_current ~= nil then
                 instance:call('execute(System.Int32)', GUI020600_itemIndex_current)
-            elseif sourceInput == SOURCE_RADIAL then
+            elseif sourceInput == SOURCE_PAD then
                 instance:call('useActiveItem(System.Boolean)', nil)
             else
                 return
@@ -943,6 +962,11 @@ if config.Enable == true then
     if type_GUI020600 then
         sdk.hook(type_GUI020600:get_method("execute"), saveItem, nil)
         sdk.hook(type_GUI020600:get_method("onHudClose"), function(args) stopExecution("type_GUI020600_onHudClose") end, nil)
+    end
+
+    -- Disable SoundGUITriggerManager item use sound
+    if type_SOUNDGUITRIGGERMANAGER then
+        sdk.hook(type_SOUNDGUITRIGGERMANAGER:get_method("onOptionalEvent(app.GUIID.ID, via.gui.Control, System.Int32, app.SoundGUITriggerDefApp.SoundParamBase)"), interceptSound, function(retval) soundCounter = soundCounter + 1 end)
     end
 
     --Check crafting itemAmount for logic
